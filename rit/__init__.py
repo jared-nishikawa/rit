@@ -1,4 +1,4 @@
-from index import IndexWrapper, TreeEntry, ExtensionEntry, Tree
+from rit.index import IndexWrapper, TreeEntry, ExtensionEntry, Tree
 from collections import OrderedDict
 
 import argparse
@@ -9,6 +9,11 @@ import sys
 import time
 import zlib
 
+
+__version__ = "0.0.0"
+__description__ = "rickety git"
+__author__ = ""
+__author_email__ = ""
 
 git = '.git'
 
@@ -207,7 +212,7 @@ def init():
         f.write("ref: refs/heads/master\n")
 
     
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="action")
 
