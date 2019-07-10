@@ -186,7 +186,7 @@ def checkout(b):
 def branch(b):
     ref = f"refs/heads/{b}"
     curref = head()
-    if not cur:
+    if not curref:
         return
     cur = rev_parse(curref)
     update_ref(ref, cur)
