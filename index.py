@@ -302,10 +302,13 @@ class IndexParser(Parser):
 class IndexWrapper:
     def __init__(self):
         self.fname = './.git/index'
-        with open(self.fname, 'rb') as f:
-            data = f.read()
-        ip = IndexParser(data)
-        self.index = ip.read()
+        if not os.path.isfile(self.fname):
+            self.index = Index(b'DIRC', 2, [], [])
+        else:
+            with open(self.fname, 'rb') as f:
+                data = f.read()
+            ip = IndexParser(data)
+            self.index = ip.read()
 
     def show(self):
         print(self.index.sig, self.index.ver, self.index.num)

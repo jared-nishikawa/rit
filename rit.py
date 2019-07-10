@@ -10,6 +10,18 @@ import time
 import zlib
 
 
+git = '.git'
+
+def find_git():
+    success = True
+    while not os.path.isdir(git):
+        os.chdir('..')
+        if os.getcwd() == '/':
+            success = False
+            break
+    return success, os.getcwd()
+        
+
 def write_tree():
     iw = IndexWrapper()
     i = iw.index
@@ -55,6 +67,7 @@ def commit_tree(msg, tree, parent=''):
     data = b""
     data += f"tree {tree}\n".encode()
     if parent:
+        parent = parent.strip()
         data += f"parent {parent}\n".encode()
     now = int(time.time())
     tz = time.strftime("%z")
@@ -173,10 +186,25 @@ def checkout(b):
 def branch(b):
     ref = f"refs/heads/{b}"
     curref = head()
-    if not cur:
+    if not curref:
         return
     cur = rev_parse(curref)
     update_ref(ref, cur)
+
+
+def init():
+    here = os.getcwd()
+    exists, gitdir = find_git()
+    if exists:
+        print("Already in git repo")
+        return
+    os.chdir(here)
+    os.mkdir(git)
+    os.mkdir(f'{git}/objects')
+    os.mkdir(f'{git}/refs')
+    os.mkdir(f'{git}/refs/heads')
+    with open(f'{git}/HEAD', 'w') as f:
+        f.write("ref: refs/heads/master\n")
 
     
 if __name__ == '__main__':
@@ -220,6 +248,8 @@ if __name__ == '__main__':
     ch = subparsers.add_parser("checkout")
     ch.add_argument("branch")
 
+    it = subparsers.add_parser("init")
+
     args = parser.parse_args()
     action = args.action
     if action == "write-tree":
@@ -256,6 +286,9 @@ if __name__ == '__main__':
 
     elif action == "checkout":
         checkout(args.branch)
+
+    elif action == "init":
+        init()
 
 
 
