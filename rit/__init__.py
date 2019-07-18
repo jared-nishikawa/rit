@@ -271,6 +271,79 @@ def init():
     with open(f'{git}/HEAD', 'w') as f:
         f.write("ref: refs/heads/master\n")
 
+
+def committed():
+    return ["foo.txt"]
+
+
+def not_staged():
+    pass
+
+
+def untracked():
+    pass
+
+
+def status():
+    b = os.path.basename(head())
+    print(f"On branch {b}")
+    changed = False
+
+    comm = committed()
+    if comm:
+        changed = True
+        print("Changes to be committed:")
+        print('  (use "git reset HEAD <file>..." to unstage)')
+        print()
+        for c in comm:
+            print(f"        modified:   {c}")
+        print()
+
+    ns = not_staged()
+    if ns:
+        changed = True
+        print("Changes not staged for commit:")
+        print('  (use "git add <file>..." to update what will be committed)')
+        print('  (use "git checkout -- <file>..." to discard changes in working directory)')
+        print()
+        for s in ns:
+            print(f"        modified:   {s}")
+        print()
+
+    uf = untracked()
+    if uf:
+        changed = True
+        print("Untracked files:")
+        print('  (use "git add <file>..." to include in what will be committed)')
+        print()
+        for f in uf:
+            print(f"        {f}")
+        print()
+
+    if not changed:
+        print("nothing to commit, working tree clean")
+
+"""
+On branch dev
+Changes to be committed:
+  (use "git reset HEAD <file>..." to unstage)
+
+	modified:   rit/__init__.py
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git checkout -- <file>..." to discard changes in working directory)
+
+	modified:   rit/__init__.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+
+	file.txt
+"""
+
+
+
     
 def main():
     parser = argparse.ArgumentParser()
@@ -316,6 +389,8 @@ def main():
 
     it = subparsers.add_parser("init")
 
+    st = subparsers.add_parser("status")
+
     args = parser.parse_args()
     action = args.action
     if action == "write-tree":
@@ -355,6 +430,9 @@ def main():
 
     elif action == "init":
         init()
+
+    elif action == "status":
+        status()
 
     else:
         parser.print_help()
