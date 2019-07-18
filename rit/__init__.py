@@ -185,7 +185,15 @@ def commit(msg):
     update_ref(ref, hsh)
 
 
-def checkout(b):
+def checkout(b, new=None):
+    if new:
+        if not create_branch(new):
+            return
+        b = new
+    change_branch(b)
+
+
+def change_branch(b):
     ref = f"refs/heads/{b}"
     path = f".git/{ref}"
     if not os.path.isfile(path):
@@ -208,13 +216,28 @@ def branch(b, delete=None):
             else:
                 print(f"  {br}")
         return
+    create_branch(b)
+
+
+def create_branch(b):
+    if is_branch(b):
+        print(f"fatal: A branch named '{b}' already exists")
+        return False
     ref = f"refs/heads/{b}"
     curref = head()
     if not curref:
-        return
+        return False
     cur = rev_parse(curref)
     update_ref(ref, cur)
+    return True
 
+
+def is_branch(b):
+    ref = f"refs/heads/{b}"
+    path = os.path.join(gitdir, git, ref)
+    if os.path.isfile(path):
+        return True
+    return False
 
 def delete_branch(b):
     curref = head()
@@ -288,7 +311,8 @@ def main():
     br.add_argument("--delete", "-d")
 
     ch = subparsers.add_parser("checkout")
-    ch.add_argument("branch")
+    ch.add_argument("branch", nargs='?', default="")
+    ch.add_argument("-b", "--new-branch")
 
     it = subparsers.add_parser("init")
 
@@ -327,7 +351,7 @@ def main():
         branch(args.branch, delete=args.delete)
 
     elif action == "checkout":
-        checkout(args.branch)
+        checkout(args.branch, new=args.new_branch)
 
     elif action == "init":
         init()
