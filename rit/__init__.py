@@ -16,16 +16,20 @@ __author__ = ""
 __author_email__ = ""
 
 git = '.git'
+here = os.getcwd()
 
 def find_git():
     success = True
-    while not os.path.isdir(git):
-        os.chdir('..')
-        if os.getcwd() == '/':
+    current = here
+    while not os.path.isdir(os.path.join(current, git)):
+        current = os.path.abspath(current + "/..")
+        if current == '/':
             success = False
             break
-    return success, os.getcwd()
-        
+    return success, current
+
+exists, gitdir = find_git()
+os.chdir(gitdir)
 
 def write_tree():
     iw = IndexWrapper()
@@ -151,9 +155,12 @@ def update_ref(ref, hsh):
         f.write(hsh + '\n')
 
 def add(fname):
-    h = hash_object(fname, write=True)
+    relative = here[len(gitdir):].lstrip('/')
+    fn = os.path.join(relative, fname)
+
+    h = hash_object(fn, write=True)
     i = IndexWrapper()
-    i.add_entry(0o100644, binascii.unhexlify(h), fname)
+    i.add_entry(0o100644, binascii.unhexlify(h), fn)
     i.write()
 
 def head():
@@ -188,7 +195,19 @@ def checkout(b):
         f.write(f"ref: {ref}")
 
 
-def branch(b):
+def branch(b, delete=None):
+    if delete:
+        delete_branch(delete)
+        return
+    if not b:
+        h = head()
+        h = os.path.basename(h)
+        for br in get_branches():
+            if br == h:
+                print(f"* {br}")
+            else:
+                print(f"  {br}")
+        return
     ref = f"refs/heads/{b}"
     curref = head()
     if not curref:
@@ -197,8 +216,26 @@ def branch(b):
     update_ref(ref, cur)
 
 
+def delete_branch(b):
+    curref = head()
+    ref = f"refs/heads/{b}"
+    if ref == curref:
+        print(f"error: Cannot delete checked out branch '{b}'")
+        return
+    path = os.path.join(gitdir, git, ref)
+    try:
+        os.remove(path)
+    except:
+        print(f"error: branch '{b}' not found")
+
+
+def get_branches():
+    path = os.path.join(gitdir, git, 'refs', 'heads')
+    return sorted(os.listdir(path))
+
+
 def init():
-    here = os.getcwd()
+    os.chdir(here)
     exists, gitdir = find_git()
     if exists:
         print("Already in git repo")
@@ -247,8 +284,8 @@ def main():
     ur.add_argument("hash")
 
     br = subparsers.add_parser("branch")
-    br.add_argument("branch")
-    br.add_argument("-d")
+    br.add_argument("branch", nargs='?', default="")
+    br.add_argument("--delete", "-d")
 
     ch = subparsers.add_parser("checkout")
     ch.add_argument("branch")
@@ -287,13 +324,16 @@ def main():
         update_ref(args.ref, args.hash)
 
     elif action == "branch":
-        branch(args.branch)
+        branch(args.branch, delete=args.delete)
 
     elif action == "checkout":
         checkout(args.branch)
 
     elif action == "init":
         init()
+
+    else:
+        parser.print_help()
 
 
 
