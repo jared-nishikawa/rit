@@ -4,6 +4,7 @@ import binascii
 import zlib
 import rit
 import os
+import sys
 
 
 def get_int(data, obj=False):
@@ -240,7 +241,13 @@ class PackParser:
 
     def write_objects(self, objdir):
         #for hsh, output, o in self.objects:
+        total = len(self.objects)
+        i = 1
         for obj in self.objects:
+            pct = int(100*i/total)
+            sys.stdout.write(f"\rUnpacking objects: {pct}% ({i}/{total}),")
+            #sys.stdout.flush()
+            i += 1
             hsh = obj.hash
             output = obj.output
             o = obj.obj_type
@@ -270,5 +277,6 @@ class PackParser:
             with open(path, "wb") as f:
                 f.write(z)
             os.chmod(path, 0o444)
+        sys.stdout.write(' done.\n')
 
 

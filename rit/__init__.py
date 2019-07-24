@@ -31,7 +31,8 @@ def find_git():
     return success, current
 
 gitexists, gitdir = find_git()
-os.chdir(gitdir)
+if gitexists:
+    os.chdir(gitdir)
 
 def write_tree():
     iw = IndexWrapper()
@@ -268,12 +269,11 @@ def get_branches():
 
 def init():
     global gitdir
-    os.chdir(here)
-    exists, gitdir = find_git()
-    if exists:
+    global here
+    if gitexists:
         print("Already in git repo")
         return
-    os.chdir(here)
+    here = os.getcwd()
     gitdir = here
     os.mkdir(git)
     os.mkdir(f'{git}/objects')
@@ -286,7 +286,13 @@ def clone(repo):
     if gitexists:
         print("Already in git repo")
         return
-    #os.chdir(here)
+    name = os.path.splitext(os.path.basename(repo))[0]
+    if os.path.isdir(name) or os.path.isfile(name):
+        print("File or directory already exists")
+        return
+    os.mkdir(name)
+    os.chdir(name)
+    print(f"Cloning into '{name}'...")
     init()
     hsh = http_transfer_meta(repo)
     path = http_transfer(repo, hsh)
@@ -315,7 +321,6 @@ def http_transfer_meta(repo):
         msg,data = data[:n], data[n:]
         if msg.endswith(b"refs/heads/master\n"):
             hsh = msg[4:44]
-        #print(msg)
         if not n:
             break
     if not hsh:
