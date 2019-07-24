@@ -156,6 +156,10 @@ def update_index(mode, hsh, filename):
     i.write()
 
 def update_ref(ref, hsh):
+    path = os.path.join(git, ref)
+    dirname = os.path.dirname(path)
+    if not os.path.isdir(dirname):
+        os.makedirs(dirname)
     with open(f".git/{ref}", 'w') as f:
         f.write(hsh + '\n')
 
@@ -263,12 +267,14 @@ def get_branches():
 
 
 def init():
+    global gitdir
     os.chdir(here)
     exists, gitdir = find_git()
     if exists:
         print("Already in git repo")
         return
     os.chdir(here)
+    gitdir = here
     os.mkdir(git)
     os.mkdir(f'{git}/objects')
     os.mkdir(f'{git}/refs')
@@ -289,6 +295,9 @@ def clone(repo):
     ref = head()
     update_ref(ref, hsh)
     set_working_commit(hsh)
+    name = "origin"
+    add_remote(name, repo)
+    update_ref(f"refs/remotes/{name}/master", hsh)
 
 def http_transfer_meta(repo):
     url = f"{repo}/info/refs?service=git-upload-pack"
@@ -427,7 +436,20 @@ def set_working_blob(blob, name):
     with open(name, 'wb') as f:
         f.write(data)
 
-def committed():
+
+def add_remote(name, url):
+    os.chdir(gitdir)
+    cfg = os.path.join(git, 'config')
+    with open(cfg, 'w') as f:
+        f.write(f'[remote "{name}"]\n')
+        f.write(f'    url = {url}\n')
+        f.write(f'fetch = +refs/heads/*:refs/remotes/{name}/*\n')
+        f.write('[branch "master"]\n')
+        f.write(f'    remote = {name}\n')
+        f.write('    merge = refs/heads/master\n')
+
+
+def to_be_committed():
     return ["foo.txt"]
 
 
@@ -444,7 +466,7 @@ def status():
     print(f"On branch {b}")
     changed = False
 
-    comm = committed()
+    comm = to_be_committed()
     if comm:
         changed = True
         print("Changes to be committed:")
@@ -555,6 +577,15 @@ def main():
     uo = subparsers.add_parser("unpack-objects")
     uo.add_argument("packfile")
 
+    rm = subparsers.add_parser("remote")
+    rm_subparsers = rm.add_subparsers(dest="remote_action")
+    rm_add = rm_subparsers.add_parser("add")
+    rm_add.add_argument("name")
+    rm_add.add_argument("url")
+
+    rm_rem = rm_subparsers.add_parser("remove")
+    rm_rem.add_argument("name")
+
     args = parser.parse_args()
     action = args.action
     if action == "write-tree":
@@ -606,6 +637,13 @@ def main():
 
     elif action == "unpack-objects":
         unpack_objects(args.packfile)
+
+    elif action == "remote":
+        if args.remote_action == "add":
+            add_remote(args.name, args.url)
+        elif args.remote_action == "remove":
+            pass
+
 
     else:
         parser.print_help()
