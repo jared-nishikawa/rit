@@ -151,6 +151,9 @@ def cat_file(hsh, type_only=False):
 def update_index(mode, hsh, filename):
     i = IndexWrapper()
     i.add_entry(mode, binascii.unhexlify(hsh), filename)
+    e,gitdir = find_git()
+    os.chdir(gitdir)
+    i.write()
 
 def update_ref(ref, hsh):
     with open(f".git/{ref}", 'w') as f:
@@ -384,6 +387,8 @@ def unpack_objects(packfile):
     p.write_objects(objdir)
 
 def set_working_commit(commit):
+    _,gitdir = find_git()
+    os.chdir(gitdir)
     data = cat_file(commit)
     for line in data.split(b'\n'):
         if line.startswith(b'tree'):
@@ -395,29 +400,32 @@ def set_working_commit(commit):
     set_working_tree(tree)
 
 
-def set_working_tree(tree, dname=''):
+def set_working_tree(tree, dname='.'):
     data = cat_file(tree)
     for line in data.split(b'\n'):
         line = line.strip()
         if not line:
             continue
         mode, typ, hsh, name = line.split()
+        mode = int(mode, 8)
         hsh = hsh.decode()
         name = name.decode()
+        fullname = os.path.join(dname, name)
         if typ == b"blob":
-            set_working_blob(hsh, os.path.join(dname, name))
+            set_working_blob(hsh, fullname)
+            if fullname.startswith('./'):
+                fullname = fullname[2:]
+            update_index(mode, hsh, fullname)
         elif typ == b"tree":
-            set_working_tree(hsh, os.path.join(dname, name))
+            set_working_tree(hsh, fullname)
 
 def set_working_blob(blob, name):
     data = cat_file(blob)
     dirname = os.path.dirname(name)
-    if dirname and not os.path.isdir(dirname):
+    if not os.path.isdir(dirname):
         os.mkdir(dirname)
     with open(name, 'wb') as f:
         f.write(data)
-
-
 
 def committed():
     return ["foo.txt"]
@@ -601,7 +609,3 @@ def main():
 
     else:
         parser.print_help()
-
-
-
-
