@@ -1,6 +1,7 @@
 from rit.index import IndexWrapper, TreeEntry, ExtensionEntry, Tree
 from collections import OrderedDict
 
+import urllib.request
 import argparse
 import binascii
 import hashlib
@@ -28,7 +29,7 @@ def find_git():
             break
     return success, current
 
-exists, gitdir = find_git()
+gitexists, gitdir = find_git()
 os.chdir(gitdir)
 
 def write_tree():
@@ -271,6 +272,67 @@ def init():
     with open(f'{git}/HEAD', 'w') as f:
         f.write("ref: refs/heads/master\n")
 
+def clone(repo):
+    if gitexists:
+        print("Already in git directory")
+        return
+    os.chdir(here)
+    url = f"{repo}/info/refs?service=git-upload-pack"
+    req = urllib.request.urlopen(url)
+    data = req.read()
+
+    assert data[:30] == b"001e# service=git-upload-pack\n"
+    data = data[30:]
+    assert data[:4] == b"0000"
+    data = data[4:]
+    hsh = b""
+    while 1:
+        i = data[:4]
+        n = int(i, 16)
+        msg,data = data[:n], data[n:]
+        if msg.endswith(b"refs/heads/master\n"):
+            hsh = msg[4:44]
+        if not n:
+            break
+    if not hsh:
+        raise Exception
+
+    hsh = hsh.decode()
+
+
+    #print(data.decode())
+    #print("*"*80)
+    
+    url = f"{repo}/git-upload-pack"
+
+    body = f"0098want {hsh} multi_ack_detailed no-done side-band-64k thin-pack ofs-delta deepen-since deepen-not agent=git/2.17.1\n00000009done\n"
+    body = body.encode()
+
+    req = urllib.request.Request(url, body)
+    req.add_header("Content-Type", "application/x-git-upload-pack-request")
+
+    r = urllib.request.urlopen(req)
+    data = r.read()
+
+    #with open('response.data', 'wb') as f:
+    #    f.write(data)
+
+    while 1:
+        i,data = data[:4], data[4:]
+        n = int(i, 16)-4
+        msg,data = data[:n], data[n:]
+    
+        try:
+            if msg[0] == 2:
+                sys.stdout.write(msg[1:].decode())
+            elif msg[0] == 1:
+
+                with open('file.pack', 'ab') as f:
+                    f.write(msg[1:])
+            #time.sleep(0.02)
+        except:
+            exit()
+
 
 def committed():
     return ["foo.txt"]
@@ -391,6 +453,9 @@ def main():
 
     st = subparsers.add_parser("status")
 
+    cl = subparsers.add_parser("clone")
+    cl.add_argument("repo")
+
     args = parser.parse_args()
     action = args.action
     if action == "write-tree":
@@ -433,6 +498,9 @@ def main():
 
     elif action == "status":
         status()
+
+    elif action == "clone":
+        clone(args.repo)
 
     else:
         parser.print_help()
