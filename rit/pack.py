@@ -6,8 +6,6 @@ import rit
 import os
 
 
-A = b''
-
 def get_int(data, obj=False):
     a = data[0]
     obj_type = (a>>4) & 0b111
@@ -36,30 +34,41 @@ def get_int(data, obj=False):
 
     return size, data, obj_type, n
 
+class IndexParser:
+    def __init__(self, data):
+        self.data = data
 
-def read_index(data):
-    global A
-    A = data
-    header,data = data[:4], data[4:]
-    ver,data = data[:4], data[4:]
-    layer1,data = data[:1024], data[1024:]
+    def parse(self):
+        data = self.data
+        header,data = data[:4], data[4:]
+        ver,data = data[:4], data[4:]
+        layer1,data = data[:1024], data[1024:]
 
-    num = struct.unpack(">I", layer1[-4:])[0]
-    layer2 = [data[20*i:20*(i+1)] for i in range(num)]
-    data = data[20*num:]
-    layer3 = [struct.unpack(">I", data[4*i:4*(i+1)])[0] for i in range(num)]
-    #print(layer3)
-    data = data[4*num:]
-    layer4 = [struct.unpack(">I", data[4*i:4*(i+1)])[0] for i in range(num)]
-    data = data[4*num:]
-    pack_chk,data = data[:20], data[20:]
-    idx_chk,data= data[:20], data[20:]
-    print(pack_chk)
-    print(idx_chk)
-    return zip(layer2, layer4)
+        num = struct.unpack(">I", layer1[-4:])[0]
+        layer2 = [data[20*i:20*(i+1)] for i in range(num)]
+        data = data[20*num:]
+        layer3 = [struct.unpack(">I", data[4*i:4*(i+1)])[0] for i in range(num)]
+        #print(layer3)
+        data = data[4*num:]
+        layer4 = [struct.unpack(">I", data[4*i:4*(i+1)])[0] for i in range(num)]
+        data = data[4*num:]
+        pack_chk,data = data[:20], data[20:]
+        idx_chk,data= data[:20], data[20:]
+        #print(pack_chk)
+        #print(idx_chk)
+        return Index(layer1, layer2, layer3, layer4)
+        #return zip(layer2, layer4)
 
 
-def write_index(objects, sha):
+class Index:
+    def __init__(self, layer1, layer2, layer3, layer4):
+        self.layer1 = layer1
+        self.layer2 = layer2
+        self.layer3 = layer3
+        self.layer4 = layer4
+
+
+def create_index(objects, sha):
     data = b'\xfftOc\x00\x00\x00\x02'
     layer1 = [0]*256
     for obj in objects:
@@ -83,6 +92,7 @@ def write_index(objects, sha):
 
     data += sha
     data += hashlib.sha1(data).digest()
+    return data
 
 
 def apply_delta(delta, base):
@@ -121,7 +131,7 @@ class PackfileEntry:
 
 
 class PackParser:
-    def __init__(self, data, index):
+    def __init__(self, data, index=None):
         self.data = data
         self.index = index
         self.objects = []
@@ -160,10 +170,10 @@ class PackParser:
         version = self.data[4:8]
         numobj = struct.unpack(">I", self.data[8:12])[0]
 
-        print(header)
-        print(version)
-        print(numobj)
-        print("*"*30)
+        #print(header)
+        #print(version)
+        #print(numobj)
+        #print("*"*30)
 
         objects = []
         offset = 12
@@ -195,18 +205,21 @@ class PackParser:
             obj.obj_data = out
             #new_objects.append((h, out, offset, crc))
         sha = self.data[-20:]
-        write_index(objects, sha)
-
+        self.sha = sha
+        self.objects = objects
+    
+    def create_index(self):
+        return create_index(self.objects, self.sha)
  
     def parse_with_index(self):
         header = self.data[:4]
         version = self.data[4:8]
         numobj = struct.unpack(">I", self.data[8:12])[0]
 
-        print(header)
-        print(version)
-        print(numobj)
-        print("*"*30)
+        #print(header)
+        #print(version)
+        #print(numobj)
+        #print("*"*30)
 
         objects = []
         offsets = []
@@ -214,15 +227,23 @@ class PackParser:
         if not self.index:
             return
     
-        for item, offset in self.index:
+        z = zip(self.index.layer2, self.index.layer4)
+        for item, offset in z:
             offsets.append(offset)
             e = self.parse_object(offset)
+            e.hash = item
+            self.objects.append(e)
 
             #_,o,output,_,_ = self.parse_object(offset)
-            self.objects.append((item, e.output, e.obj_type))
+            #self.objects.append((item, e.output, e.obj_type))
+        self.sha = self.data[-20:]
 
-    def write(self):
-        for hsh, output, o in self.objects:
+    def write_objects(self, objdir):
+        #for hsh, output, o in self.objects:
+        for obj in self.objects:
+            hsh = obj.hash
+            output = obj.output
+            o = obj.obj_type
             l = len(output)
             # commit
             if o == 1:
@@ -239,7 +260,7 @@ class PackParser:
             z = zlib.compress(out)
             
             h = binascii.hexlify(_h).decode()
-            path = f"./objects/{h[:2]}/{h[2:]}"
+            path = os.path.join(objdir, h[:2], h[2:])
             dirname = os.path.dirname(path)
 
             if not os.path.isdir(dirname):
@@ -251,14 +272,3 @@ class PackParser:
             os.chmod(path, 0o444)
 
 
-
-with open('file.idx', 'rb') as f:
-    z = read_index(f.read())
-
-with open('file.pack', 'rb') as f:
-    data = f.read()
-
-p = PackParser(data, z)
-p.parse_without_index()
-#p.parse_with_index()
-#p.write()

@@ -1,4 +1,5 @@
 from rit.index import IndexWrapper, TreeEntry, ExtensionEntry, Tree
+from rit.pack import PackParser, IndexParser
 from collections import OrderedDict
 
 import urllib.request
@@ -119,12 +120,12 @@ def cat_file(hsh, type_only=False):
     assert len(spl) == 2
     h,text = spl
     if type_only:
-        return h.decode()
+        return h
     n,rest = text.split(b'\x00', 1)
     n = int(n)
     assert len(rest) == n
     if h == b'blob':
-        return rest.decode()
+        return rest
     elif h == b'tree':
         result = []
         entries = []
@@ -143,9 +144,9 @@ def cat_file(hsh, type_only=False):
             h = binascii.hexlify(hsh).decode()
             n = name.decode()
             result.append(f"{p:06o} {typ} {h}    {n}\n")
-        return ''.join(result)
+        return ''.join(result).encode()
     elif h == b'commit':
-        return rest.decode()
+        return rest
 
 def update_index(mode, hsh, filename):
     i = IndexWrapper()
@@ -274,9 +275,19 @@ def init():
 
 def clone(repo):
     if gitexists:
-        print("Already in git directory")
+        print("Already in git repo")
         return
-    os.chdir(here)
+    #os.chdir(here)
+    init()
+    hsh = http_transfer_meta(repo)
+    path = http_transfer(repo, hsh)
+    index_pack(path, show=False)
+    unpack_objects(path)
+    ref = head()
+    update_ref(ref, hsh)
+    set_working_commit(hsh)
+
+def http_transfer_meta(repo):
     url = f"{repo}/info/refs?service=git-upload-pack"
     req = urllib.request.urlopen(url)
     data = req.read()
@@ -292,17 +303,17 @@ def clone(repo):
         msg,data = data[:n], data[n:]
         if msg.endswith(b"refs/heads/master\n"):
             hsh = msg[4:44]
+        #print(msg)
         if not n:
             break
     if not hsh:
         raise Exception
 
     hsh = hsh.decode()
+    return hsh
 
+def http_transfer(repo, hsh):
 
-    #print(data.decode())
-    #print("*"*80)
-    
     url = f"{repo}/git-upload-pack"
 
     body = f"0098want {hsh} multi_ack_detailed no-done side-band-64k thin-pack ofs-delta deepen-since deepen-not agent=git/2.17.1\n00000009done\n"
@@ -314,9 +325,7 @@ def clone(repo):
     r = urllib.request.urlopen(req)
     data = r.read()
 
-    #with open('response.data', 'wb') as f:
-    #    f.write(data)
-
+    packdata = b''
     while 1:
         i,data = data[:4], data[4:]
         n = int(i, 16)-4
@@ -326,12 +335,88 @@ def clone(repo):
             if msg[0] == 2:
                 sys.stdout.write(msg[1:].decode())
             elif msg[0] == 1:
+                packdata += msg[1:]
 
-                with open('file.pack', 'ab') as f:
-                    f.write(msg[1:])
-            #time.sleep(0.02)
         except:
-            exit()
+            break
+
+    dirname = os.path.join(git, 'objects', 'pack')
+    if not os.path.isdir(dirname):
+        os.makedirs(dirname)
+    
+    h = binascii.hexlify(packdata[-20:]).decode()
+    path = os.path.join(git, 'objects', 'pack', f'pack-{h}.pack')
+    with open(path, 'wb') as f:
+        f.write(packdata)
+    return path
+
+
+def index_pack(packfile, show=True):
+    os.chdir(here)
+    if not os.path.isfile(packfile):
+        print(f"fatal: cannot open packfile '{packfile}': No such file or directory")
+        return
+    with open(packfile, 'rb') as f:
+        data = f.read()
+    p = PackParser(data)
+    p.parse_without_index()
+    index = p.create_index()
+    sha = index[-40:-20]
+    #print(sha)
+    if show:
+        print(binascii.hexlify(sha).decode())
+    base = os.path.splitext(packfile)[0]
+    path = '.'.join((base, 'idx'))
+    with open(path, 'wb') as f:
+        f.write(index)
+
+def unpack_objects(packfile):
+    base = os.path.splitext(packfile)[0]
+    idxfile = '.'.join((base, 'idx'))
+    with open(idxfile, 'rb') as f:
+        ip = IndexParser(f.read())
+    idx = ip.parse()
+
+    with open(packfile, 'rb') as f:
+        p = PackParser(f.read(), index=idx)
+    p.parse_without_index()
+    objdir = os.path.join(git, 'objects')
+    p.write_objects(objdir)
+
+def set_working_commit(commit):
+    data = cat_file(commit)
+    for line in data.split(b'\n'):
+        if line.startswith(b'tree'):
+            tree = line.strip().split()[1].decode()
+            break
+    else:
+        print("No tree found in commit")
+        return
+    set_working_tree(tree)
+
+
+def set_working_tree(tree, dname=''):
+    data = cat_file(tree)
+    for line in data.split(b'\n'):
+        line = line.strip()
+        if not line:
+            continue
+        mode, typ, hsh, name = line.split()
+        hsh = hsh.decode()
+        name = name.decode()
+        if typ == b"blob":
+            set_working_blob(hsh, os.path.join(dname, name))
+        elif typ == b"tree":
+            set_working_tree(hsh, os.path.join(dname, name))
+
+def set_working_blob(blob, name):
+    data = cat_file(blob)
+    dirname = os.path.dirname(name)
+    if dirname and not os.path.isdir(dirname):
+        os.mkdir(dirname)
+    with open(name, 'wb') as f:
+        f.write(data)
+
 
 
 def committed():
@@ -456,6 +541,12 @@ def main():
     cl = subparsers.add_parser("clone")
     cl.add_argument("repo")
 
+    ip = subparsers.add_parser("index-pack")
+    ip.add_argument("packfile")
+
+    uo = subparsers.add_parser("unpack-objects")
+    uo.add_argument("packfile")
+
     args = parser.parse_args()
     action = args.action
     if action == "write-tree":
@@ -465,9 +556,9 @@ def main():
         print(hash_object(args.filename, write=args.w))
     elif action == "cat-file":
         if args.p:
-            print(cat_file(args.p), end='')
+            print(cat_file(args.p).decode(), end='')
         elif args.t:
-            print(cat_file(args.t, type_only=True))
+            print(cat_file(args.t, type_only=True).decode())
     elif action == "update-index":
         update_index(args.mode, args.hash, args.filename)
         
@@ -501,6 +592,12 @@ def main():
 
     elif action == "clone":
         clone(args.repo)
+
+    elif action == "index-pack":
+        index_pack(args.packfile)
+
+    elif action == "unpack-objects":
+        unpack_objects(args.packfile)
 
     else:
         parser.print_help()
