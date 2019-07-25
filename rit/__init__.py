@@ -1,5 +1,6 @@
 from rit.index import IndexWrapper, TreeEntry, ExtensionEntry, Tree
 from rit.pack import PackParser, IndexParser
+from rit.objects import ObjectParser
 from collections import OrderedDict
 
 import urllib.request
@@ -112,42 +113,24 @@ def write_object(_h, zipped):
         f.write(zipped)
     os.chmod(path, 0o444)
 
+
+def cur_objects():
+    ref = head()
+    hsh = rev_parse(ref).strip()
+    op = ObjectParser(hsh)
+    c = op.parse()
+    op = ObjectParser(c.tree)
+    t = op.parse()
+    return t.walk()
+
+
 def cat_file(hsh, type_only=False):
-    fname = f".git/objects/{hsh[:2]}/{hsh[2:]}"
-    with open(fname, "rb") as f:
-        data = f.read()
-    text = zlib.decompress(data)
-    spl = text.split(b' ', maxsplit=1)
-    assert len(spl) == 2
-    h,text = spl
+    op = ObjectParser(hsh)
+    obj = op.parse()
     if type_only:
-        return h
-    n,rest = text.split(b'\x00', 1)
-    n = int(n)
-    assert len(rest) == n
-    if h == b'blob':
-        return rest
-    elif h == b'tree':
-        result = []
-        entries = []
-        while rest:
-            perms,rest = rest.split(b' ', maxsplit=1)
-            name,rest = rest.split(b'\x00', maxsplit=1)
-            hsh,rest = rest[:20], rest[20:]
-            entry = (perms, name, hsh)
-            entries.append(entry)
-        for perms, name, hsh in entries:
-            if perms.startswith(b'1'):
-                typ = 'blob'
-            else:
-                typ = 'tree'
-            p = int(perms, 8)
-            h = binascii.hexlify(hsh).decode()
-            n = name.decode()
-            result.append(f"{p:06o} {typ} {h}    {n}\n")
-        return ''.join(result).encode()
-    elif h == b'commit':
-        return rest
+        return obj.type
+    return obj.encode()
+
 
 def update_index(mode, hsh, filename):
     i = IndexWrapper()
@@ -155,6 +138,7 @@ def update_index(mode, hsh, filename):
     e,gitdir = find_git()
     os.chdir(gitdir)
     i.write()
+
 
 def update_ref(ref, hsh):
     path = os.path.join(git, ref)
@@ -164,14 +148,15 @@ def update_ref(ref, hsh):
     with open(f".git/{ref}", 'w') as f:
         f.write(hsh + '\n')
 
+
 def add(fname):
     relative = here[len(gitdir):].lstrip('/')
     fn = os.path.join(relative, fname)
-
     h = hash_object(fn, write=True)
     i = IndexWrapper()
     i.add_entry(0o100644, binascii.unhexlify(h), fn)
     i.write()
+
 
 def head():
     with open(".git/HEAD") as f:
@@ -179,12 +164,14 @@ def head():
         ref = data.split(':')[1].strip()
     return ref
 
+
 def rev_parse(ref):
     path = f".git/{ref}"
     if os.path.isfile(path):
         with open(f".git/{ref}") as f:
             return f.read()
     return ''
+
 
 def commit(msg):
     h = write_tree()
@@ -249,6 +236,7 @@ def is_branch(b):
         return True
     return False
 
+
 def delete_branch(b):
     curref = head()
     ref = f"refs/heads/{b}"
@@ -282,6 +270,7 @@ def init():
     with open(f'{git}/HEAD', 'w') as f:
         f.write("ref: refs/heads/master\n")
 
+
 def clone(repo):
     if gitexists:
         print("Already in git repo")
@@ -304,6 +293,7 @@ def clone(repo):
     name = "origin"
     add_remote(name, repo)
     update_ref(f"refs/remotes/{name}/master", hsh)
+
 
 def http_transfer_meta(repo):
     url = f"{repo}/info/refs?service=git-upload-pack"
@@ -329,8 +319,8 @@ def http_transfer_meta(repo):
     hsh = hsh.decode()
     return hsh
 
-def http_transfer(repo, hsh):
 
+def http_transfer(repo, hsh):
     url = f"{repo}/git-upload-pack"
 
     body = f"0098want {hsh} multi_ack_detailed no-done side-band-64k thin-pack ofs-delta deepen-since deepen-not agent=git/2.17.1\n00000009done\n"
@@ -387,6 +377,7 @@ def index_pack(packfile, show=True):
     with open(path, 'wb') as f:
         f.write(index)
 
+
 def unpack_objects(packfile):
     base = os.path.splitext(packfile)[0]
     idxfile = '.'.join((base, 'idx'))
@@ -399,6 +390,7 @@ def unpack_objects(packfile):
     p.parse_without_index()
     objdir = os.path.join(git, 'objects')
     p.write_objects(objdir)
+
 
 def set_working_commit(commit):
     _,gitdir = find_git()
@@ -433,6 +425,7 @@ def set_working_tree(tree, dname='.'):
         elif typ == b"tree":
             set_working_tree(hsh, fullname)
 
+
 def set_working_blob(blob, name):
     data = cat_file(blob)
     dirname = os.path.dirname(name)
@@ -455,11 +448,33 @@ def add_remote(name, url):
 
 
 def to_be_committed():
-    return ["foo.txt"]
+    # Contents of last commit
+    last = dict(cur_objects())
+    
+    # In index
+    i = IndexWrapper()
+    results = []
+
+    for name,hsh in i.entries():
+        chk = last.get(name)
+        if not chk:
+            results.append(("new file", name.decode()))
+        elif hsh != last.get(name):
+            results.append(("modified", name.decode()))
+
+    return results
 
 
 def not_staged():
-    pass
+    # Need to parse gitignore and do regex :(
+    os.chdir(gitdir)
+    for dirname, dirs, files in os.walk('.'):
+        for f in files:
+            full = os.path.join(dirname, f)[2:]
+            if full.startswith(".git/"):
+                continue
+            #print(full)
+
 
 
 def untracked():
@@ -477,8 +492,8 @@ def status():
         print("Changes to be committed:")
         print('  (use "git reset HEAD <file>..." to unstage)')
         print()
-        for c in comm:
-            print(f"        modified:   {c}")
+        for s,c in comm:
+            print(f"        {s}:   {c}")
         print()
 
     ns = not_staged()

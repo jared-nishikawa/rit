@@ -310,6 +310,9 @@ class IndexWrapper:
             ip = IndexParser(data)
             self.index = ip.read()
 
+    def entries(self):
+        return [(e.entry_path_name, binascii.hexlify(e.sha1).decode()) for e in self.index.entries]
+
     def show(self):
         print(self.index.sig, self.index.ver, self.index.num)
         for e in self.index.entries:
