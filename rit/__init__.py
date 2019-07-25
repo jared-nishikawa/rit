@@ -1,6 +1,7 @@
 from rit.index import IndexWrapper, TreeEntry, ExtensionEntry, Tree
 from rit.pack import PackParser, IndexParser
 from rit.objects import ObjectParser
+from rit.color import yellow, green
 from collections import OrderedDict
 
 import urllib.request
@@ -169,7 +170,7 @@ def rev_parse(ref):
     path = f".git/{ref}"
     if os.path.isfile(path):
         with open(f".git/{ref}") as f:
-            return f.read()
+            return f.read().strip()
     return ''
 
 
@@ -447,6 +448,20 @@ def add_remote(name, url):
         f.write('    merge = refs/heads/master\n')
 
 
+def log():
+    h = head()
+    ref = rev_parse(h)
+    while 1:
+        op = ObjectParser(ref)
+        commit = op.parse()
+        print(yellow(commit.hash))
+        print(commit.message.decode())
+        print()
+        if not commit.parents:
+            break
+        ref = commit.parents[0]
+
+
 def to_be_committed():
     # Contents of last commit
     last = dict(cur_objects())
@@ -493,7 +508,7 @@ def status():
         print('  (use "git reset HEAD <file>..." to unstage)')
         print()
         for s,c in comm:
-            print(f"        {s}:   {c}")
+            print(green(f"        {s}:   {c}"))
         print()
 
     ns = not_staged()
@@ -597,6 +612,8 @@ def main():
     uo = subparsers.add_parser("unpack-objects")
     uo.add_argument("packfile")
 
+    lg = subparsers.add_parser("log")
+
     rm = subparsers.add_parser("remote")
     rm_subparsers = rm.add_subparsers(dest="remote_action")
     rm_add = rm_subparsers.add_parser("add")
@@ -664,6 +681,8 @@ def main():
         elif args.remote_action == "remove":
             pass
 
+    elif action == "log":
+        log()
 
     else:
         parser.print_help()

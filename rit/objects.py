@@ -4,14 +4,15 @@ import os
 
 
 class GitObject:
-    def __init__(self, typ, data):
+    def __init__(self, typ, data, hsh):
         self.type = typ
         self.data = data
+        self.hash = hsh
 
 
 class GitTree(GitObject):
-    def __init__(self, typ, data, dirname=b''):
-        super().__init__(typ, data)
+    def __init__(self, typ, data, hsh, dirname=b''):
+        super().__init__(typ, data, hsh)
         entries = []
         while data:
             perms,data = data.split(b' ', maxsplit=1)
@@ -57,34 +58,45 @@ class GitBlob(GitObject):
 
 
 class GitCommit(GitObject):
-    def __init__(self, typ, data):
-        super().__init__(typ, data)
+    def __init__(self, typ, data, hsh):
+        super().__init__(typ, data, hsh)
+
         line,data = data.split(b'\n', maxsplit=1)
         assert line.startswith(b'tree')
         tree = line.split(maxsplit=1)[1]
-        line,data = data.split(b'\n', maxsplit=1)
-        parent = b''
-        author = b''
-        if line.startswith(b'parent'):
-            parent = line.split(maxsplit=1)[1]
-        elif line.startswith(b'author'):
-            author = line.split(maxsplit=1)[1]
-        else:
-            assert False
-        if parent:
+
+        parents = []
+        while 1:
             line,data = data.split(b'\n', maxsplit=1)
-            assert line.startswith(b'author')
-            author = line.split(maxsplit=1)[1]
+            parent = b''
+            if line.startswith(b'parent'):
+                parent = line.split(maxsplit=1)[1]
+                parents.append(parent.decode())
+            else:
+                break
+            #elif line.startswith(b'author'):
+            #    author = line.split(maxsplit=1)[1]
+            #    break
+            #else:
+            #    assert False
+            #if parent:
+            #    line,data = data.split(b'\n', maxsplit=1)
+            #    assert line.startswith(b'author')
+        assert line.startswith(b'author')
+        author = line.split(maxsplit=1)[1]
         line,data = data.split(b'\n', maxsplit=1)
         assert line.startswith(b'committer')
         committer = line.split(maxsplit=1)[1]
         assert data.startswith(b'\n')
-        data = data[1:]
-        line,data = data.split(b'\n', maxsplit=1)
-        message = line.split(maxsplit=1)[1]
+        message = data.strip()
+        #data = data[1:]
+        #line = data.strip()
+        #line,data = data.split(b'\n', maxsplit=1)
+        #print(line)
+        #message = line.split(maxsplit=1)[1]
 
         self.tree = tree
-        self.parent = parent
+        self.parents = parents
         self.author = author
         self.committer = committer
         self.message = message
@@ -96,6 +108,7 @@ class GitCommit(GitObject):
 class ObjectParser:
     def __init__(self, hsh, dirname=b''):
         self.dirname = dirname
+        self.hsh = hsh
         try:
             hsh = hsh.decode()
         except:
@@ -115,11 +128,11 @@ class ObjectParser:
         assert len(rest) == n
 
         if h == b'blob':
-            return GitBlob(h, rest)
+            return GitBlob(h, rest, self.hsh)
 
         elif h == b'tree':
-            return GitTree(h, rest, dirname=self.dirname)
+            return GitTree(h, rest, self.hsh, dirname=self.dirname)
 
         elif h == b'commit':
-            return GitCommit(h, rest)
+            return GitCommit(h, rest, self.hsh)
 
