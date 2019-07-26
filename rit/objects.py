@@ -87,7 +87,7 @@ class GitCommit(GitObject):
         line,data = data.split(b'\n', maxsplit=1)
         assert line.startswith(b'committer')
         committer = line.split(maxsplit=1)[1]
-        assert data.startswith(b'\n')
+        #assert data.startswith(b'\n')
         message = data.strip()
         #data = data[1:]
         #line = data.strip()

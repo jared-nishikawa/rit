@@ -448,18 +448,49 @@ def add_remote(name, url):
         f.write('    merge = refs/heads/master\n')
 
 
-def log():
+def all_refs():
+    os.chdir(gitdir)
+    refdir = os.path.join(git, 'refs')
+    heads_path = os.path.join(git, 'refs', 'heads')
+    remotes_path = os.path.join(git, 'refs', 'remotes')
+    refs = {}
+    for dname, dirs, files in os.walk(refdir):
+        for fname in files:
+            full = os.path.join(dname, fname)
+            hsh = rev_parse(full[len(git):])
+            if os.path.commonpath((full, heads_path)) == heads_path:
+                key = full[len(heads_path):].lstrip('/')
+            elif os.path.commonpath((full, remotes_path)) == remotes_path:
+                key = full[len(remotes_path):].lstrip('/')
+            refs[hsh] = refs.get(hsh, []) + [key]
+    return refs
+
+
+def log(oneline):
+    refs = all_refs()
     h = head()
     ref = rev_parse(h)
-    while 1:
+    stack = [ref]
+    while stack:
+        ref = stack[0]
+        del stack[0]
+
         op = ObjectParser(ref)
         commit = op.parse()
-        print(yellow(commit.hash))
-        print(commit.message.decode())
-        print()
-        if not commit.parents:
-            break
-        ref = commit.parents[0]
+        if oneline:
+            print(yellow(commit.hash[:8]), end=' ')
+            print(commit.message.decode().split('\n')[0])
+        else:
+            print(yellow(commit.hash), end=' ')
+            if commit.hash in refs:
+                print("(", end='')
+                print(', '.join(refs[commit.hash]), end='')
+                print(')')
+            print()
+            print(commit.message.decode())
+            print()
+        stack = commit.parents + stack
+        #ref = commit.parents[0]
 
 
 def to_be_committed():
@@ -613,6 +644,7 @@ def main():
     uo.add_argument("packfile")
 
     lg = subparsers.add_parser("log")
+    lg.add_argument("--oneline", action="store_true")
 
     rm = subparsers.add_parser("remote")
     rm_subparsers = rm.add_subparsers(dest="remote_action")
@@ -682,7 +714,7 @@ def main():
             pass
 
     elif action == "log":
-        log()
+        log(args.oneline)
 
     else:
         parser.print_help()
