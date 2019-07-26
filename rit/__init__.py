@@ -210,7 +210,7 @@ def branch(b, delete=None):
         h = os.path.basename(h)
         for br in get_branches():
             if br == h:
-                print(f"* {br}")
+                print(f"* {green(br)}")
             else:
                 print(f"  {br}")
         return
